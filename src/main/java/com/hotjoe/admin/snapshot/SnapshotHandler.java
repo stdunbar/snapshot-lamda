@@ -1,4 +1,4 @@
-package com.hotjoe.admin.util.handler.snapshot;
+package com.hotjoe.admin.snapshot;
 
 import com.amazonaws.regions.Region;
 import com.amazonaws.regions.RegionUtils;
@@ -20,7 +20,7 @@ import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hotjoe.admin.util.handler.snapshot.version.VersionInfo;
+import com.hotjoe.admin.snapshot.version.VersionInfo;
 
 import java.io.IOException;
 import java.io.InputStream;

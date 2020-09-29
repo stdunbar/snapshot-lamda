@@ -27,7 +27,7 @@ On the build side this is a simple Maven project.  Simply do a:
 
 to get a Jar file that can be deployed to Lambda.  If you've cloned this repository and run
 the build then you will need to deploy `target/snapshotlambda-1.0.jar` to Lambda.
-The handler that will be needed in Lambda is `com.hotjoe.admin.util.handler.snapshot.SnapshotHandler::handleRequest`
+The handler that will be needed in Lambda is `com.hotjoe.admin.snapshot.SnapshotHandler::handleRequest`
 with the code I have here.
 
 

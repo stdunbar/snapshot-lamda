@@ -1,4 +1,4 @@
-package com.hotjoe.admin.util.handler.snapshot.version;
+package com.hotjoe.admin.snapshot.version;
 
 import java.io.IOException;
 import java.io.InputStream;
