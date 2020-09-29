@@ -8,9 +8,9 @@ input is a very simple JSON object:
 
 ```json
 {
-    "volumeId": "vol-0c4077e79d2c5034d",
-    "description":"Jenkins Snapshot",
-    "name": "jenkins-snapshot"
+    "volumeId": "vol-0c4077e123456789",
+    "description":"My EC2 Snapshot",
+    "name": "my-ec2-snapshot"
 }
 ```
 
