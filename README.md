@@ -3,7 +3,7 @@
 A simple [AWS Lambda](https://aws.amazon.com/lambda/) function to handle creating an EBS snapshot
 of a volume and to remove "old" snapshots.
 
-The input to the Lambda is likely to come from CloudWatch but that is not a requirement.  The
+The input to the Lambda is likely to come from Eventbridge rules but that is not a requirement.  The
 input is a very simple JSON object:
 
 ```json
