@@ -1,37 +1,38 @@
 package com.hotjoe.admin.snapshot;
 
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.RegionUtils;
-import com.amazonaws.services.ec2.AmazonEC2;
-import com.amazonaws.services.ec2.AmazonEC2ClientBuilder;
-import com.amazonaws.services.ec2.model.AmazonEC2Exception;
-import com.amazonaws.services.ec2.model.CreateSnapshotRequest;
-import com.amazonaws.services.ec2.model.CreateSnapshotResult;
-import com.amazonaws.services.ec2.model.DeleteSnapshotRequest;
-import com.amazonaws.services.ec2.model.DescribeSnapshotsRequest;
-import com.amazonaws.services.ec2.model.DescribeSnapshotsResult;
-import com.amazonaws.services.ec2.model.Filter;
-import com.amazonaws.services.ec2.model.ResourceType;
-import com.amazonaws.services.ec2.model.Snapshot;
-import com.amazonaws.services.ec2.model.Tag;
-import com.amazonaws.services.ec2.model.TagSpecification;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotjoe.admin.snapshot.version.VersionInfo;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.CreateSnapshotRequest;
+import software.amazon.awssdk.services.ec2.model.CreateSnapshotResponse;
+import software.amazon.awssdk.services.ec2.model.DeleteSnapshotRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsResponse;
+import software.amazon.awssdk.services.ec2.model.Ec2Exception;
+import software.amazon.awssdk.services.ec2.model.Filter;
+import software.amazon.awssdk.services.ec2.model.ResourceType;
+import software.amazon.awssdk.services.ec2.model.Snapshot;
+import software.amazon.awssdk.services.ec2.model.Tag;
+import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 
 /**
- * A class to create a snapshot of a EBS volume.  The expected input is a JSON string, looking something like:
+ * A class to create a snapshot of an EBS volume.  The expected input is a JSON string, looking something like:
  * <pre>
  * {
  *     "volumeId": "vol-0c4077e79d2c5034d",
@@ -50,6 +51,7 @@ import java.util.List;
  *
  */
 public class SnapshotHandler implements RequestStreamHandler  {
+    private static final int NUM_SNAPSHOTS_TO_KEEP_DEFAULT = 10;
 
     /**
      * This is the method called by the AWS Lambda service.
@@ -85,73 +87,82 @@ public class SnapshotHandler implements RequestStreamHandler  {
         Region region;
         String regionEnvVar = System.getenv("REGION");
         if (regionEnvVar != null)
-            region = RegionUtils.getRegion(regionEnvVar);
+            region = Region.of(regionEnvVar);
         else
-            region = RegionUtils.getRegion(System.getenv("AWS_REGION"));
+            region = Region.of(System.getenv("AWS_REGION"));
 
-        AmazonEC2 amazonEC2 = AmazonEC2ClientBuilder.standard().withRegion(region.getName()).build();
+        try( Ec2Client ec2Client = Ec2Client.builder().region(region).build() ) {
+            //
+            // create the snapshot
+            //
+            CreateSnapshotRequest createSnapshotRequest = CreateSnapshotRequest.builder()
+                    .description(description)
+                    .volumeId(volumeId)
+                    .tagSpecifications(TagSpecification.builder().tags(Tag.builder().key("Name").value(name).build()).resourceType(ResourceType.SNAPSHOT).build())
+                    .build();
 
-        //
-        // create the actual snapshot
-        //
-        CreateSnapshotRequest createSnapshotRequest = new CreateSnapshotRequest()
-                .withDescription(description)
-                .withVolumeId(volumeId)
-                .withTagSpecifications(new TagSpecification().withTags(new Tag("Name", name)).withResourceType(ResourceType.Snapshot));
-        CreateSnapshotResult createSnapshotResult = amazonEC2.createSnapshot(createSnapshotRequest);
+            CreateSnapshotResponse createSnapshotResponse = ec2Client.createSnapshot(createSnapshotRequest);
 
-        lambdaLogger.log("created snapshot request, snapshot id is \"" + createSnapshotResult.getSnapshot().getSnapshotId() + "\"");
+            lambdaLogger.log("created snapshot request, snapshot id is \"" + createSnapshotResponse.snapshotId() + "\"");
 
-        //
-        // now, do we have anything to clean up?
-        //
-        Filter filter = new Filter().withName("volume-id").withValues(volumeId);
+            //
+            // now, do we have anything to clean up?
+            //
+            Filter filter = Filter.builder().name("volume-id").values(volumeId).build();
 
-        List<Snapshot> snapshots = new ArrayList<>();
+            List<Snapshot> snapshots = new ArrayList<>();
 
-        String nextToken = null;
-        do {
-            DescribeSnapshotsRequest describeSnapshotsRequest = new DescribeSnapshotsRequest().withFilters(filter);
-            if (nextToken != null)
-                describeSnapshotsRequest.setNextToken(nextToken);
+            String nextToken = null;
+            do {
+                DescribeSnapshotsRequest describeSnapshotsRequest = DescribeSnapshotsRequest.builder()
+                        .filters(filter)
+                        .nextToken(nextToken)
+                        .build();
 
-            DescribeSnapshotsResult describeSnapshotsResult = amazonEC2.describeSnapshots(describeSnapshotsRequest);
+                DescribeSnapshotsResponse describeSnapshotsResponse = ec2Client.describeSnapshots(describeSnapshotsRequest);
 
-            snapshots.addAll(describeSnapshotsResult.getSnapshots());
+                snapshots.addAll(describeSnapshotsResponse.snapshots());
 
-            nextToken = describeSnapshotsResult.getNextToken();
+                nextToken = describeSnapshotsResponse.nextToken();
 
-        } while (nextToken != null);
+            } while (nextToken != null);
 
-        snapshots.sort(Comparator.comparing(Snapshot::getStartTime));
+            snapshots.sort(Comparator.comparing(Snapshot::startTime));
 
-        lambdaLogger.log("found " + snapshots.size() + " existing snapshots for volume id " + volumeId);
+            lambdaLogger.log("found " + snapshots.size() + " existing snapshots for volume id " + volumeId);
 
-        int snapshotsToKeep = 10;
-        String snapshotsToKeepString = System.getenv("NUM_SNAPSHOTS_TO_KEEP");
-        if (snapshotsToKeepString != null)
-            snapshotsToKeep = Integer.parseInt(snapshotsToKeepString);
+            int snapshotsToKeep = NUM_SNAPSHOTS_TO_KEEP_DEFAULT;
+            String snapshotsToKeepString = System.getenv("NUM_SNAPSHOTS_TO_KEEP");
+            if (snapshotsToKeepString != null)
+                snapshotsToKeep = Integer.parseInt(snapshotsToKeepString);
 
-        if (snapshotsToKeep >= snapshots.size()) {
-            lambdaLogger.log("we want to keep " + snapshotsToKeep + " snapshots but only have " + snapshots.size() + " available.  we're done");
-            return;
-        }
-
-        int numSnapshotsToRemove = snapshots.size() - snapshotsToKeep;
-
-        List<Snapshot> snapshotsToRemove = snapshots.subList(0, numSnapshotsToRemove);
-
-        lambdaLogger.log("removing " + numSnapshotsToRemove + " old snapshot" + (numSnapshotsToRemove > 1 ? "s": ""));
-
-        for( Snapshot nextRemovedSnapshot: snapshotsToRemove ) {
-            try {
-                amazonEC2.deleteSnapshot(new DeleteSnapshotRequest(nextRemovedSnapshot.getSnapshotId()));
+            if (snapshotsToKeep >= snapshots.size()) {
+                lambdaLogger.log("we want to keep " + snapshotsToKeep + " snapshots but only have " + snapshots.size() + " available.  we're done");
+                return;
             }
-            catch( AmazonEC2Exception amazonEC2Exception ) {
-                lambdaLogger.log( "error removing snapshot id " + nextRemovedSnapshot.getSnapshotId() + " - is it in use?  it will be skipped.  error is " + amazonEC2Exception.getMessage() );
-            }
-        }
 
-        lambdaLogger.log("done with run, remaining time in ms is " + context.getRemainingTimeInMillis() );
+            int numSnapshotsToRemove = snapshots.size() - snapshotsToKeep;
+
+            List<Snapshot> snapshotsToRemove = snapshots.subList(0, numSnapshotsToRemove);
+
+            lambdaLogger.log("removing " + numSnapshotsToRemove + " old snapshot" + (numSnapshotsToRemove > 1 ? "s" : ""));
+
+            for (Snapshot nextRemovedSnapshot : snapshotsToRemove) {
+                try {
+                    ec2Client.deleteSnapshot(DeleteSnapshotRequest.builder().snapshotId(nextRemovedSnapshot.snapshotId()).build());
+                } catch (Ec2Exception ec2Exception) {
+                    lambdaLogger.log("error removing snapshot id " + nextRemovedSnapshot.snapshotId() + " - is it in use?  it will be skipped.  error is " + ec2Exception.getMessage());
+                }
+            }
+
+            lambdaLogger.log("done with run, remaining time in ms is " + context.getRemainingTimeInMillis());
+        }
+        catch( Exception exception) {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            exception.printStackTrace(pw);
+
+            lambdaLogger.log( "overall exception:\n" + pw );
+        }
     }
 }
