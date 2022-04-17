@@ -43,7 +43,7 @@ import java.util.List;
  * </pre>
  *
  * Note that the numSnapshotsToKeep value is optional.  If it exists it will override the environment variable below.
- * This allows you to have multiple environment with, for example, your dev environment only keeping a few days of
+ * This allows you to have multiple environments with, for example, your dev environment only keeping a few days of
  * backups and your production keeping more.
  *
  * Two environment variables can optionally be set for the Lambda:

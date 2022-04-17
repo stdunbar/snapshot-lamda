@@ -10,7 +10,8 @@ input is a very simple JSON object:
 {
     "volumeId": "vol-0c4077e123456789",
     "description":"My EC2 Snapshot",
-    "name": "my-ec2-snapshot"
+    "name": "my-ec2-snapshot",
+    "numSnapshotsToKeep": "10"
 }
 ```
 
@@ -18,6 +19,7 @@ The parameters are:
 * **volumeId** - the volume id of the EBS volume that you want to take a snapshot of
 * **description** - the description to the snapshot
 * **name** - the name for the snapshot
+* **numSnapshotsToKeep** - an optional field that specifies the number of snapshots to keep for this volume id. If it exists it will override the environment variable below.  This allows you to have multiple environments with, for example, your dev environment only keeping a few days of backups and your production keeping more.
 
 ### Setup ###
 
