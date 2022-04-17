@@ -37,16 +37,21 @@ import java.util.List;
  * {
  *     "volumeId": "vol-0c4077e79d2c5034d",
  *     "description":"Jenkins Snapshot",
- *     "name": "jenkins-snapshot"
+ *     "name": "jenkins-snapshot",
+ *     "numSnapshotsToKeep", "10
  * }
  * </pre>
+ *
+ * Note that the numSnapshotsToKeep value is optional.  If it exists it will override the environment variable below.
+ * This allows you to have multiple environment with, for example, your dev environment only keeping a few days of
+ * backups and your production keeping more.
  *
  * Two environment variables can optionally be set for the Lambda:
  * <ol>
  *     <li><b>REGION</b> - allows you to override the region that the volume and snapshot live in.  Defaults
  *     to the same region that the Lambda is running in.</li>
  *     <li><b>NUM_SNAPSHOTS_TO_KEEP</b> - an integer number of the number of old snapshots to keep.  Defaults
- *     to 10</li>
+ *     to 10.  Again, if a value is provided in the JSON input then it will take precedence.</li>
  * </ol>
  *
  */
@@ -69,17 +74,31 @@ public class SnapshotHandler implements RequestStreamHandler  {
     public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) throws IOException {
         LambdaLogger lambdaLogger = context.getLogger();
 
+        int snapshotsToKeep = NUM_SNAPSHOTS_TO_KEEP_DEFAULT;
+
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode jsonNode = objectMapper.readTree(inputStream);
         String description = "Created by SnapshotHandler Lambda: " + jsonNode.get("description").asText();
         String volumeId = jsonNode.get("volumeId").asText();
         String name = jsonNode.get("name").asText();
+        JsonNode numSnapshotsToKeepNode = jsonNode.get("numSnapshotsToKeep");
+        if( numSnapshotsToKeepNode != null ) {
+            snapshotsToKeep = Integer.parseInt(numSnapshotsToKeepNode.asText());
+        }
+        else {
+              String snapshotsToKeepString = System.getenv("NUM_SNAPSHOTS_TO_KEEP");
+              if (snapshotsToKeepString != null)
+                  snapshotsToKeep = Integer.parseInt(snapshotsToKeepString);
+
+            lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep );
+        }
 
         lambdaLogger.log("in handlerRequest:");
         lambdaLogger.log("description is \"" + description + "\"");
         lambdaLogger.log("volumeId is \"" + volumeId + "\"");
         lambdaLogger.log("name is \"" + name + "\"");
-        lambdaLogger.log("version info - " + new VersionInfo().getVersionString() );
+        lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep );
+        lambdaLogger.log("version info is:" + new VersionInfo().getVersionString() );
 
         //
         // you can override the region if needed
@@ -131,10 +150,8 @@ public class SnapshotHandler implements RequestStreamHandler  {
 
             lambdaLogger.log("found " + snapshots.size() + " existing snapshots for volume id " + volumeId);
 
-            int snapshotsToKeep = NUM_SNAPSHOTS_TO_KEEP_DEFAULT;
-            String snapshotsToKeepString = System.getenv("NUM_SNAPSHOTS_TO_KEEP");
-            if (snapshotsToKeepString != null)
-                snapshotsToKeep = Integer.parseInt(snapshotsToKeepString);
+
+
 
             if (snapshotsToKeep >= snapshots.size()) {
                 lambdaLogger.log("we want to keep " + snapshotsToKeep + " snapshots but only have " + snapshots.size() + " available.  we're done");
