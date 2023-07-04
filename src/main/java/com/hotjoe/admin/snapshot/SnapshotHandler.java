@@ -6,7 +6,6 @@ import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hotjoe.admin.snapshot.version.VersionInfo;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.CreateSnapshotRequest;
@@ -41,11 +40,11 @@ import java.util.List;
  *     "numSnapshotsToKeep", "10
  * }
  * </pre>
- *
+ * <p>
  * Note that the numSnapshotsToKeep value is optional.  If it exists it will override the environment variable below.
  * This allows you to have multiple environments with, for example, your dev environment only keeping a few days of
  * backups and your production keeping more.
- *
+ * <br />
  * Two environment variables can optionally be set for the Lambda:
  * <ol>
  *     <li><b>REGION</b> - allows you to override the region that the volume and snapshot live in.  Defaults
@@ -53,21 +52,19 @@ import java.util.List;
  *     <li><b>NUM_SNAPSHOTS_TO_KEEP</b> - an integer number of the number of old snapshots to keep.  Defaults
  *     to 10.  Again, if a value is provided in the JSON input then it will take precedence.</li>
  * </ol>
- *
  */
-public class SnapshotHandler implements RequestStreamHandler  {
+public class SnapshotHandler implements RequestStreamHandler {
     private static final int NUM_SNAPSHOTS_TO_KEEP_DEFAULT = 10;
 
     /**
      * This is the method called by the AWS Lambda service.
      *
-     * @param inputStream provided by the Lambda service, this is a stream of data provided to the Lambda function
+     * @param inputStream  provided by the Lambda service, this is a stream of data provided to the Lambda function
      * @param outputStream provided by the Lambda service, this is a stream of data that can return values.  It is
      *                     unused in this method as there is no output.
-     * @param context the Lambda context that this method was called with.
-     **
-     * @throws IOException if there was a problem running the method.
+     * @param context      the Lambda context that this method was called with.
      *
+     * @throws IOException if there was a problem running the method.
      */
 
     @Override
@@ -82,23 +79,21 @@ public class SnapshotHandler implements RequestStreamHandler  {
         String volumeId = jsonNode.get("volumeId").asText();
         String name = jsonNode.get("name").asText();
         JsonNode numSnapshotsToKeepNode = jsonNode.get("numSnapshotsToKeep");
-        if( numSnapshotsToKeepNode != null ) {
+        if (numSnapshotsToKeepNode != null) {
             snapshotsToKeep = Integer.parseInt(numSnapshotsToKeepNode.asText());
-        }
-        else {
-              String snapshotsToKeepString = System.getenv("NUM_SNAPSHOTS_TO_KEEP");
-              if (snapshotsToKeepString != null)
-                  snapshotsToKeep = Integer.parseInt(snapshotsToKeepString);
+        } else {
+            String snapshotsToKeepString = System.getenv("NUM_SNAPSHOTS_TO_KEEP");
+            if (snapshotsToKeepString != null)
+                snapshotsToKeep = Integer.parseInt(snapshotsToKeepString);
 
-            lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep );
+            lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep);
         }
 
         lambdaLogger.log("in handlerRequest:");
         lambdaLogger.log("description is \"" + description + "\"");
         lambdaLogger.log("volumeId is \"" + volumeId + "\"");
         lambdaLogger.log("name is \"" + name + "\"");
-        lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep );
-        lambdaLogger.log("version info is:" + new VersionInfo().getVersionString() );
+        lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep);
 
         //
         // you can override the region if needed
@@ -110,7 +105,7 @@ public class SnapshotHandler implements RequestStreamHandler  {
         else
             region = Region.of(System.getenv("AWS_REGION"));
 
-        try( Ec2Client ec2Client = Ec2Client.builder().region(region).build() ) {
+        try (Ec2Client ec2Client = Ec2Client.builder().region(region).build()) {
             //
             // create the snapshot
             //
@@ -150,11 +145,9 @@ public class SnapshotHandler implements RequestStreamHandler  {
 
             lambdaLogger.log("found " + snapshots.size() + " existing snapshots for volume id " + volumeId);
 
-
-
-
             if (snapshotsToKeep >= snapshots.size()) {
-                lambdaLogger.log("we want to keep " + snapshotsToKeep + " snapshots but only have " + snapshots.size() + " available.  we're done");
+                lambdaLogger.log("we want to keep " + snapshotsToKeep + " snapshots but only have " +
+                        snapshots.size() + " available.  we're done");
                 return;
             }
 
@@ -168,18 +161,18 @@ public class SnapshotHandler implements RequestStreamHandler  {
                 try {
                     ec2Client.deleteSnapshot(DeleteSnapshotRequest.builder().snapshotId(nextRemovedSnapshot.snapshotId()).build());
                 } catch (Ec2Exception ec2Exception) {
-                    lambdaLogger.log("error removing snapshot id " + nextRemovedSnapshot.snapshotId() + " - is it in use?  it will be skipped.  error is " + ec2Exception.getMessage());
+                    lambdaLogger.log("error removing snapshot id " + nextRemovedSnapshot.snapshotId() +
+                            " - is it in use?  it will be skipped.  error is " + ec2Exception.getMessage());
                 }
             }
 
             lambdaLogger.log("done with run, remaining time in ms is " + context.getRemainingTimeInMillis());
-        }
-        catch( Exception exception) {
+        } catch (Exception exception) {
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
             exception.printStackTrace(pw);
 
-            lambdaLogger.log( "overall exception:\n" + pw );
+            lambdaLogger.log("overall exception:\n" + pw);
         }
     }
 }
