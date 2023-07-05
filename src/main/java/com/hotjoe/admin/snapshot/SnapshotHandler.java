@@ -13,18 +13,25 @@ import software.amazon.awssdk.services.ec2.model.CreateSnapshotResponse;
 import software.amazon.awssdk.services.ec2.model.DeleteSnapshotRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeSnapshotsResponse;
+import software.amazon.awssdk.services.ec2.model.DescribeVolumesRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeVolumesResponse;
 import software.amazon.awssdk.services.ec2.model.Ec2Exception;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.ResourceType;
 import software.amazon.awssdk.services.ec2.model.Snapshot;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
+import software.amazon.awssdk.services.ec2.model.Volume;
+import software.amazon.awssdk.services.ec2.model.VolumeAttachment;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -55,6 +62,8 @@ import java.util.List;
  */
 public class SnapshotHandler implements RequestStreamHandler {
     private static final int NUM_SNAPSHOTS_TO_KEEP_DEFAULT = 10;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
 
     /**
      * This is the method called by the AWS Lambda service.
@@ -63,19 +72,23 @@ public class SnapshotHandler implements RequestStreamHandler {
      * @param outputStream provided by the Lambda service, this is a stream of data that can return values.  It is
      *                     unused in this method as there is no output.
      * @param context      the Lambda context that this method was called with.
-     *
-     * @throws IOException if there was a problem running the method.
      */
-
     @Override
-    public void handleRequest(InputStream inputStream, OutputStream outputStream, Context context) throws IOException {
+    public void handleRequest(final InputStream inputStream, final OutputStream outputStream, final Context context) {
         LambdaLogger lambdaLogger = context.getLogger();
 
         int snapshotsToKeep = NUM_SNAPSHOTS_TO_KEEP_DEFAULT;
 
-        ObjectMapper objectMapper = new ObjectMapper();
-        JsonNode jsonNode = objectMapper.readTree(inputStream);
-        String description = "Created by SnapshotHandler Lambda: " + jsonNode.get("description").asText();
+        JsonNode jsonNode;
+        try {
+            jsonNode = objectMapper.readTree(inputStream);
+        }
+        catch( IOException ioe ) {
+            lambdaLogger.log("unable to read input stream: " + ioe.getMessage() );
+            return;
+        }
+
+        String description = jsonNode.get("description").asText();
         String volumeId = jsonNode.get("volumeId").asText();
         String name = jsonNode.get("name").asText();
         JsonNode numSnapshotsToKeepNode = jsonNode.get("numSnapshotsToKeep");
@@ -89,12 +102,6 @@ public class SnapshotHandler implements RequestStreamHandler {
             lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep);
         }
 
-        lambdaLogger.log("in handlerRequest:");
-        lambdaLogger.log("description is \"" + description + "\"");
-        lambdaLogger.log("volumeId is \"" + volumeId + "\"");
-        lambdaLogger.log("name is \"" + name + "\"");
-        lambdaLogger.log("snapshotsToKeep is " + snapshotsToKeep);
-
         //
         // you can override the region if needed
         //
@@ -107,12 +114,45 @@ public class SnapshotHandler implements RequestStreamHandler {
 
         try (Ec2Client ec2Client = Ec2Client.builder().region(region).build()) {
             //
+            // get the instance id(s) that this volume is attached to for tagging
+            //
+            String nextDescribeVolumesRequestToken = null;
+            StringBuilder attachedInstanceIds = new StringBuilder();
+
+            do {
+                DescribeVolumesRequest describeVolumesRequest = DescribeVolumesRequest.builder().
+                        volumeIds(volumeId)
+                        .nextToken(nextDescribeVolumesRequestToken)
+                        .build();
+
+                DescribeVolumesResponse describeVolumesResponse = ec2Client.describeVolumes(describeVolumesRequest);
+
+                for (Volume volume : describeVolumesResponse.volumes()) {
+                    List<VolumeAttachment> attachments = volume.attachments();
+
+                    for (VolumeAttachment nextVolumeAttachment : attachments) {
+                        attachedInstanceIds.append(nextVolumeAttachment.instanceId());
+                        attachedInstanceIds.append(",");
+                    }
+                }
+
+                nextDescribeVolumesRequestToken = describeVolumesResponse.nextToken();
+
+            } while (nextDescribeVolumesRequestToken != null);
+
+            //
             // create the snapshot
             //
             CreateSnapshotRequest createSnapshotRequest = CreateSnapshotRequest.builder()
                     .description(description)
                     .volumeId(volumeId)
-                    .tagSpecifications(TagSpecification.builder().tags(Tag.builder().key("Name").value(name).build()).resourceType(ResourceType.SNAPSHOT).build())
+                    .tagSpecifications(TagSpecification.builder().tags(
+                                    Tag.builder().key("Name").value(name).build(),
+                                    Tag.builder().key("VolumeID").value(volumeId).build(),
+                                    Tag.builder().key("Description").value(description).build(),
+                                    Tag.builder().key("InstanceIDs").value(attachedInstanceIds.substring(0, attachedInstanceIds.length() - 1)).build(),
+                                    Tag.builder().key("Recovery Point").value(DateTimeFormatter.ISO_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC))).build())
+                            .resourceType(ResourceType.SNAPSHOT).build())
                     .build();
 
             CreateSnapshotResponse createSnapshotResponse = ec2Client.createSnapshot(createSnapshotRequest);
@@ -126,20 +166,20 @@ public class SnapshotHandler implements RequestStreamHandler {
 
             List<Snapshot> snapshots = new ArrayList<>();
 
-            String nextToken = null;
+            String nextDescribeSnapshotsRequestToken = null;
             do {
                 DescribeSnapshotsRequest describeSnapshotsRequest = DescribeSnapshotsRequest.builder()
                         .filters(filter)
-                        .nextToken(nextToken)
+                        .nextToken(nextDescribeSnapshotsRequestToken)
                         .build();
 
                 DescribeSnapshotsResponse describeSnapshotsResponse = ec2Client.describeSnapshots(describeSnapshotsRequest);
 
                 snapshots.addAll(describeSnapshotsResponse.snapshots());
 
-                nextToken = describeSnapshotsResponse.nextToken();
+                nextDescribeSnapshotsRequestToken = describeSnapshotsResponse.nextToken();
 
-            } while (nextToken != null);
+            } while (nextDescribeSnapshotsRequestToken != null);
 
             snapshots.sort(Comparator.comparing(Snapshot::startTime));
 
@@ -172,7 +212,7 @@ public class SnapshotHandler implements RequestStreamHandler {
             PrintWriter pw = new PrintWriter(sw);
             exception.printStackTrace(pw);
 
-            lambdaLogger.log("overall exception:\n" + pw);
+            lambdaLogger.log("overall exception:\n" + sw);
         }
     }
 }

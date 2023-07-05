@@ -68,10 +68,27 @@ you'll get the file `target/snapshotlambda-1.0-aws-lambda.zip` that can be deplo
 Regardless of how you build the output, the handler that will be needed in Lambda is
 `com.hotjoe.admin.snapshot.SnapshotHandler::handleRequest` with the code I have here.
 
-
 ### Environment Variables ###
 Two environment variables can optionally be set for the Lambda:
 
 1) **REGION** - allows you to override the region that the volume and snapshot live in.  Defaults
                 to the same region that the Lambda is running in.
 2) **NUM_SNAPSHOTS_TO_KEEP** - an integer number of the number of old snapshots to keep.  Defaults to 10.
+
+### Snapshot Tags ###
+All snapshots are tagged as
+[AWS recommends](https://docs.aws.amazon.com/prescriptive-guidance/latest/backup-recovery/ec2-backup.html#tagging) with
+the following tags:
+* **Name** - the name for the snapshot, as defined in the incoming JSON
+* **VolumeID** - the volume id of the EBS volume that you want to take a snapshot of
+* **Description** - the description to the snapshot as defined in the incoming JSON.  This value is also part of the
+Description field in the snapshot.
+* **InstanceID** - a comma separated list of instance id's that this volume is attached to
+* **Recovery Point** - the time stamp (UTC) when this volume snapshot was started
+
+### Lambda Runtime Permissions ###
+The most likely error you'll run across is that the Lambda does not have permission to create the snapshot from the
+volume.  While you can assign the `AmazonEC2FullAccess` policy, this is vastly too much power.  I haven't come up with
+the perfect set of permissions but for debugging, run the Lambda manually to make sure it has the correct permissions 
+for the role that the Lambda is assigned to.
+
