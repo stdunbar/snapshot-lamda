@@ -34,11 +34,10 @@ warnings related to the new code in Maven 3.9 and above.  As of this writing Mav
 code has not been tested on that.
 
 ### Profiles, or choosing your packaging tool ###
-If you've cloned this repository and run the build as shown then you will need to deploy
-`target/snapshotlambda-1.0.jar`.  The default is to use the `shade` profile, that uses the AWS recommended tool 
-[Apache Maven Shade Plugin](https://maven.apache.org/plugins/maven-shade-plugin/).  When you run this you will get
-multiple warnings about file name collisions.  All of these are for files in `META-INF` like LICENSE and other files
-that are not likely to be an issue with a collision.
+The deployment package is `target/snapshotlambda-1.0.jar`.  This is the default when using the `shade` profile.
+That profile uses the AWS recommended [Apache Maven Shade Plugin](https://maven.apache.org/plugins/maven-shade-plugin/).
+When you run this you will get multiple warnings about file name collisions.  All of these are for files in `META-INF`
+like LICENSE and other files that are not likely to be an issue with a collision.
 
 The warnings end with:
 
@@ -52,11 +51,11 @@ The warnings end with:
 [WARNING] See https://maven.apache.org/plugins/maven-shade-plugin/<br />
 </blockquote>
 
-I'll admit I'm not a fan of "trust me, it's likely ok"  I haven't spent the time to update `pom.xml` to exclude the
-duplicate files at this point.
+I'll admit I'm not a fan of "trust me, it's likely ok" type of warnings.  I haven't spent the time to update
+`pom.xml` to exclude the duplicate files at this point.
 
 Another option for the build is using code from [Microlam](https://microlam.io/).  I have seen debates about the
-use of the Maven shade plugin and, while I'm not positive I agree with all the negatives the warnings are a bit
+use of the Maven shade plugin and, while I'm not positive I agree with all the negatives, the warnings are a bit
 concerning.  So if you compile with:
 
 `mvn clean package -Pmicrolam`
@@ -66,7 +65,7 @@ you'll get the file `target/snapshotlambda-1.0-aws-lambda.zip` that can be deplo
 
 ### Handler ###
 Regardless of how you build the output, the handler that will be needed in Lambda is
-`com.hotjoe.admin.snapshot.SnapshotHandler::handleRequest` with the code I have here.
+`com.hotjoe.admin.snapshot.SnapshotHandler::handleRequest` when deploying.
 
 ### Environment Variables ###
 Two environment variables can optionally be set for the Lambda:
